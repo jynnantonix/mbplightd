@@ -140,7 +140,7 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd)
 	__builtin_unreachable();
 }
 
-int main(int argc, char **argv)
+int main()
 {
 	int brightness_fd, sensor_fd, backlight_fd;
 	pid_t pid;
