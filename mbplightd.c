@@ -30,6 +30,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define likely(x)        __builtin_expect((x),1)
+#define unlikely(x)      __builtin_expect((x),0)
+
+#define FAIL_IF(cond, fmt)                                              \
+	do {                                                            \
+		if (unlikely(cond)) {                                   \
+			fprintf(stderr, fmt ": %s\n", strerror(errno)); \
+			exit(EXIT_FAILURE);                             \
+		}                                                       \
+	} while (0)
+
 void signal_handler(int signal)
 {
 	switch (signal) {
@@ -54,57 +65,32 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd)
 	double new_val;
 	const double denom = log(256);
 
-	if (setsid() < 0) {
-		printf("Error calling setsid: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	/* Create new session */
+	FAIL_IF(setsid() < 0, "Unable to create new session");
 
-	if (chroot("/jail/mbplightd") != 0) {
-		printf("Call to chroot failed: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	/* Jail ourselves into a chroot */
+	FAIL_IF(chroot("/jail/mbplightd") != 0, "chroot failed");
+	FAIL_IF(chdir("/") != 0, "chdir failed");
 
-	if (chdir("/") != 0) {
-		printf("Call to chdir failed: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	/* Lose all unnecessary privileges */
+	FAIL_IF(setresgid(99, 99, 99) != 0, "Unable to change group id");
+	FAIL_IF(setresuid(99, 99, 99) != 0, "Unable to change user id");
 
-	if (setresgid(99, 99, 99) != 0) {
-		printf("Call to setresgid failed: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-
-	if (setresuid(99, 99, 99) != 0) {
-		printf("Call to setresuid failed: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-
+	/* Set up signal handlers */
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
 	signal(SIGHUP, signal_handler);
 
 	do {
 		/* go to the beginning of each file */
-		if (lseek(sensor_fd, 0, SEEK_SET) < 0) {
-			printf("Error seeking sensor file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		if (lseek(brightness_fd, 0, SEEK_SET) < 0) {
-			printf("Error seeking brightness file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		if (lseek(backlight_fd, 0, SEEK_SET) < 0) {
-			printf("Error seeking backlight file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
+		FAIL_IF(lseek(sensor_fd, 0, SEEK_SET) < 0, "Sensor seek error");
+		FAIL_IF(lseek(brightness_fd, 0, SEEK_SET) < 0, "Brightness seek error");
+		FAIL_IF(lseek(backlight_fd, 0, SEEK_SET) < 0, "Backlight seek error");
 
 		/* get the backight value */
-		if (read(sensor_fd, buf, sizeof(buf)) <= 0) {
-			printf("Error reading from sensor file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
+		FAIL_IF(read(sensor_fd, buf, sizeof(buf)) <= 0, "Sensor read error");
 
-		if (sscanf(buf, "(%d,", &ambient_light) <= 0) {
+		if (unlikely(sscanf(buf, "(%d,", &ambient_light) <= 0)) {
 			puts("Error parsing sensor data\n");
 			exit(EXIT_FAILURE);
 		}
@@ -113,26 +99,20 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd)
 		new_val = 128 + ((log(ambient_light+1) / denom) * 895);
 
 		/* set the brightness */
-		if (snprintf(buf, sizeof(buf), "%d", (int)new_val) == sizeof(buf)) {
+		if (unlikely(snprintf(buf, sizeof(buf), "%d", (int)new_val) == sizeof(buf))) {
 			buf[sizeof(buf) - 1] = '\0';
 			printf("Brightness value overflowed buffer: %s\n", buf);
 			exit(EXIT_FAILURE);
 		}
-		if (write(brightness_fd, buf, strlen(buf)) < 0) {
-			printf("Error writing to brightness file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
+		FAIL_IF(write(brightness_fd, buf, strlen(buf)) < 0, "Brightness write failed");
 
 		/* set the keyboard backlight */
-		if (snprintf(buf, sizeof(buf), "%d", (int)(new_val / 4)) == sizeof(buf)) {
+		if (unlikely(snprintf(buf, sizeof(buf), "%d", (int)(new_val / 4)) == sizeof(buf))) {
 			buf[sizeof(buf) - 1] = '\0';
 			printf("Backight value overflowed buffer: %s\n", buf);
 			exit(EXIT_FAILURE);
 		}
-		if (write(backlight_fd, buf, strlen(buf)) < 0) {
-			printf("Error writing to backlight file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
+		FAIL_IF(write(backlight_fd, buf, strlen(buf)) < 0, "Backlight write failed");
 
 		sleep(2);
 	} while (1);
@@ -146,28 +126,16 @@ int main()
 	pid_t pid;
 
 	brightness_fd = open("/sys/class/backlight/nvidia_backlight/brightness", O_WRONLY);
-	if (brightness_fd < 0) {
-		printf("Error opening brightness file: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	FAIL_IF(brightness_fd < 0, "Error opening brightness file");
+
 	backlight_fd = open("/sys/class/leds/smc::kbd_backlight/brightness", O_WRONLY);
-	if (backlight_fd < 0) {
-		printf("Error opening backlight file: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	FAIL_IF(backlight_fd < 0, "Error opening backlight file");
 
 	sensor_fd = open("/sys/devices/platform/applesmc.768/light", O_RDONLY);
-	if (sensor_fd < 0) {
-		printf("Error opening sensor file: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	FAIL_IF(sensor_fd < 0, "Error opening sensor file");
 
 	pid = fork();
-	if (pid < 0) {
-		/* error during fork() */
-		puts(strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+	FAIL_IF(pid < 0, "Could not fork child process");
 
 	if (pid > 0) {
 		/* successfully forked, terminate parent */
