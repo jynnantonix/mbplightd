@@ -70,3 +70,8 @@ cat /etc/passwd | grep nobody
 ```
 ./mbplightd
 ```
+
+TODO
+----
+- [ ] Add configurable options
+- [ ] Allow users to manually set brightness
