@@ -49,10 +49,10 @@ void signal_handler(int signal)
 
 void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd)
 {
-	FILE *brightness, *backlight, *sensor;
-	int brightness_dup, backlight_dup, sensor_dup;
-	int ambient_light, unused;
-	double denom, new_val;
+	char buf[16];
+	int ambient_light;
+	double new_val;
+	const double denom = log(256);
 
 	if (setsid() < 0) {
 		printf("Error calling setsid: %s\n", strerror(errno));
@@ -83,56 +83,56 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd)
 	signal(SIGTERM, signal_handler);
 	signal(SIGHUP, signal_handler);
 
-	denom = log(256);
-
 	do {
-		/* duplicate file descriptors */
-		if ((brightness_dup = dup(brightness_fd)) < 0) {
-			printf("Error duplicating brightness fd: %s\n", strerror(errno));
+		/* go to the beginning of each file */
+		if (lseek(sensor_fd, 0, SEEK_SET) < 0) {
+			printf("Error seeking sensor file: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		if (lseek(brightness_fd, 0, SEEK_SET) < 0) {
+			printf("Error seeking brightness file: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		if (lseek(backlight_fd, 0, SEEK_SET) < 0) {
+			printf("Error seeking backlight file: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 
-		if ((backlight_dup = dup(backlight_fd)) < 0) {
-			printf("Error duplicating backlight fd: %s\n", strerror(errno));
+		/* get the backight value */
+		if (read(sensor_fd, buf, sizeof(buf)) <= 0) {
+			printf("Error reading from sensor file: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 
-		if ((sensor_dup = dup(sensor_fd)) < 0) {
-			printf("Error duplicating sensor fd: %s\n", strerror(errno));
+		if (sscanf(buf, "(%d,", &ambient_light) <= 0) {
+			puts("Error parsing sensor data\n");
 			exit(EXIT_FAILURE);
 		}
 
-		/* open files */
-		sensor = fdopen(sensor_dup, "r");
-		if (sensor == NULL) {
-			printf("Error opening sensor file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		brightness = fdopen(brightness_dup, "w");
-		if (brightness == NULL) {
-			printf("Error opening brightness file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		backlight = fdopen(backlight_dup, "w");
-		if (backlight == NULL) {
-			printf("Error opening backlight file: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-
-		fseek(sensor, 0, SEEK_SET);
-		if (fscanf(sensor, "(%d,%d)", &ambient_light, &unused) <= 0) {
-			printf("Error reading sensor file. feof: %d, ferror: %d\n",
-				feof(sensor), ferror(sensor));
-			exit(EXIT_FAILURE);
-		}
-
+		/* calculate the new value*/
 		new_val = 128 + ((log(ambient_light+1) / denom) * 895);
-		fprintf(brightness, "%d", (int)new_val);
-		fprintf(backlight, "%d", (int)(new_val / 4));
 
-		fclose(sensor);
-		fclose(backlight);
-		fclose(brightness);
+		/* set the brightness */
+		if (snprintf(buf, sizeof(buf), "%d", (int)new_val) == sizeof(buf)) {
+			buf[sizeof(buf) - 1] = '\0';
+			printf("Brightness value overflowed buffer: %s\n", buf);
+			exit(EXIT_FAILURE);
+		}
+		if (write(brightness_fd, buf, strlen(buf)) < 0) {
+			printf("Error writing to brightness file: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+
+		/* set the keyboard backlight */
+		if (snprintf(buf, sizeof(buf), "%d", (int)(new_val / 4)) == sizeof(buf)) {
+			buf[sizeof(buf) - 1] = '\0';
+			printf("Backight value overflowed buffer: %s\n", buf);
+			exit(EXIT_FAILURE);
+		}
+		if (write(backlight_fd, buf, strlen(buf)) < 0) {
+			printf("Error writing to backlight file: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
 
 		sleep(2);
 	} while (1);
