@@ -44,14 +44,14 @@ void signal_handler(int signal) {
   switch (signal) {
   case SIGINT:
   case SIGTERM:
-    printf("Received signal: %s\n", strsignal(signal));
+    fprintf(stderr, "Received signal: %s\n", strsignal(signal));
     exit(EXIT_SUCCESS);
     break;
   case SIGHUP:
-    puts("Received SIGHUP\n");
+    fputs("Received SIGHUP\n", stderr);
     break;
   default:
-    printf("Unhandled signal: (%d) %s\n", signal, strsignal(signal));
+    fprintf(stderr, "Unhandled signal: (%d) %s\n", signal, strsignal(signal));
     break;
   }
 }
@@ -88,7 +88,7 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
     FAIL_IF(read(sensor_fd, buf, sizeof(buf)) <= 0, "Sensor read error");
 
     if (unlikely(sscanf(buf, "(%d,", &ambient_light) <= 0)) {
-      puts("Error parsing sensor data\n");
+      fputs("Error parsing sensor data\n", stderr);
       exit(EXIT_FAILURE);
     }
 
@@ -99,7 +99,7 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
     if (unlikely(snprintf(buf, sizeof(buf), "%d", (int) new_val) ==
                  sizeof(buf))) {
       buf[sizeof(buf) - 1] = '\0';
-      printf("Brightness value overflowed buffer: %s\n", buf);
+      fprintf(stderr, "Brightness value overflowed buffer: %s\n", buf);
       exit(EXIT_FAILURE);
     }
     FAIL_IF(write(brightness_fd, buf, strlen(buf)) < 0,
@@ -109,7 +109,7 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
     if (unlikely(snprintf(buf, sizeof(buf), "%d", (int)(new_val / 4)) ==
                  sizeof(buf))) {
       buf[sizeof(buf) - 1] = '\0';
-      printf("Backight value overflowed buffer: %s\n", buf);
+      fprintf(stderr, "Backight value overflowed buffer: %s\n", buf);
       exit(EXIT_FAILURE);
     }
     FAIL_IF(write(backlight_fd, buf, strlen(buf)) < 0,
