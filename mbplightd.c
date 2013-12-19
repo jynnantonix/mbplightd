@@ -47,6 +47,7 @@
 #define BRIGHTNESS_LOCATION "/sys/class/backlight/nvidia_backlight/brightness"
 #define BACKLIGHT_LOCATION "/sys/class/leds/smc::kbd_backlight/brightness"
 #define PID_LOCATION "/run/mbplightd/pidfile"
+#define POLL_INTERVAL 2
 
 #define AC_MAX_BRIGHTNESS 1023
 #define AC_MIN_BRIGHTNESS 127
@@ -116,6 +117,9 @@ void config_init(void) {
 
   config.pidfile =
       strdup(iniparser_getstring(dict, "general:pidfile", PID_LOCATION));
+
+  config.poll_interval =
+      iniparser_getint(dict, "general:poll_interval", POLL_INTERVAL);
 
   config.ac_max_brightness =
       iniparser_getint(dict, "brightness:ac_max", AC_MAX_BRIGHTNESS);
@@ -212,7 +216,7 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
     FAIL_IF(write(backlight_fd, buf, strlen(buf)) < 0,
             "Backlight write failed");
 
-    sleep(2);
+    sleep(config.poll_interval);
   } while (1);
 
   __builtin_unreachable();
