@@ -73,5 +73,5 @@ cat /etc/passwd | grep nobody
 
 TODO
 ----
-- [ ] Add configurable options
+- [x] Add configurable options
 - [ ] Allow users to manually set brightness

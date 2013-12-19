@@ -20,6 +20,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <iniparser.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +41,49 @@
     }                                                                          \
   } while (0)
 
+#define CONFIG_LOCATION "mbplightd.conf"
+
+#define SENSOR_LOCATION "/sys/devices/platform/applesmc.768/light"
+#define BRIGHTNESS_LOCATION "/sys/class/backlight/nvidia_backlight/brightness"
+#define BACKLIGHT_LOCATION "/sys/class/leds/smc::kbd_backlight/brightness"
+#define PID_LOCATION "/run/mbplightd/pidfile"
+
+#define AC_MAX_BRIGHTNESS 1023
+#define AC_MIN_BRIGHTNESS 127
+#define BAT_MAX_BRIGHTNESS 895
+#define BAT_MIN_BRIGHTNESS 63
+
+#define AC_MAX_BACKLIGHT 255
+#define AC_MIN_BACKLIGHT 31
+#define BAT_MAX_BACKLIGHT 223
+#define BAT_MIN_BACKLIGHT 15
+
+#define CHROOT_DIR "/jail/mbplightd"
+#define DEFAULT_GID 99
+#define DEFAULT_UID 99
+
+struct config {
+  char *sensor;      /* filename for the ambient light sensor */
+  char *brightness;  /* filename for the brightness control */
+  char *backlight;   /* filename for the backlight control */
+  char *pidfile;     /* write the daemon's pid here */
+  int poll_interval; /* number of seconds to wait between updates */
+
+  int ac_max_brightness;  /* maximum brightness value when on AC power */
+  int ac_min_brightness;  /* minimum brightness value when on AC power */
+  int bat_max_brightness; /* maximum brightness value when on battery power */
+  int bat_min_brightness; /* minimum brightness value when on battery power */
+
+  int ac_max_backlight;  /* maximum backlight value when on AC power */
+  int ac_min_backlight;  /* minimum backlight value when on AC power */
+  int bat_max_backlight; /* maximum backlight value when on battery power */
+  int bat_min_backlight; /* minimum backlight value when on battery power */
+
+  char *chroot_dir; /* directory we should chroot into */
+  int uid;          /* user id we should run under */
+  int gid;          /* group id we should run under */
+} config;
+
 void signal_handler(int signal) {
   switch (signal) {
   case SIGINT:
@@ -56,6 +100,57 @@ void signal_handler(int signal) {
   }
 }
 
+void config_init(void) {
+  dictionary *dict = iniparser_load(CONFIG_LOCATION);
+
+  FAIL_IF(dict == NULL, "Error loading config file");
+
+  config.sensor =
+      strdup(iniparser_getstring(dict, "general:sensor", SENSOR_LOCATION));
+
+  config.brightness = strdup(
+      iniparser_getstring(dict, "general:brightness", BRIGHTNESS_LOCATION));
+
+  config.backlight = strdup(
+      iniparser_getstring(dict, "general:backlight", BACKLIGHT_LOCATION));
+
+  config.pidfile =
+      strdup(iniparser_getstring(dict, "general:pidfile", PID_LOCATION));
+
+  config.ac_max_brightness =
+      iniparser_getint(dict, "brightness:ac_max", AC_MAX_BRIGHTNESS);
+
+  config.ac_min_brightness =
+      iniparser_getint(dict, "brightness:ac_min", AC_MIN_BRIGHTNESS);
+
+  config.bat_max_brightness =
+      iniparser_getint(dict, "brightness:bat_max", BAT_MAX_BRIGHTNESS);
+
+  config.bat_min_brightness =
+      iniparser_getint(dict, "brightness:bat_min", BAT_MIN_BRIGHTNESS);
+
+  config.ac_max_backlight =
+      iniparser_getint(dict, "backlight:ac_max", AC_MAX_BACKLIGHT);
+
+  config.ac_min_backlight =
+      iniparser_getint(dict, "backlight:ac_min", AC_MIN_BACKLIGHT);
+
+  config.bat_max_backlight =
+      iniparser_getint(dict, "backlight:bat_max", BAT_MAX_BACKLIGHT);
+
+  config.bat_min_backlight =
+      iniparser_getint(dict, "backlight:bat_min", BAT_MIN_BACKLIGHT);
+
+  config.chroot_dir =
+      strdup(iniparser_getstring(dict, "security:chroot_dir", CHROOT_DIR));
+
+  config.gid = iniparser_getint(dict, "security:gid", DEFAULT_GID);
+
+  config.uid = iniparser_getint(dict, "security:uid", DEFAULT_UID);
+
+  iniparser_freedict(dict);
+}
+
 void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
   char buf[16];
   int ambient_light;
@@ -66,12 +161,14 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
   FAIL_IF(setsid() < 0, "Unable to create new session");
 
   /* Jail ourselves into a chroot */
-  FAIL_IF(chroot("/jail/mbplightd") != 0, "chroot failed");
+  FAIL_IF(chroot(config.chroot_dir) != 0, "chroot failed");
   FAIL_IF(chdir("/") != 0, "chdir failed");
 
   /* Lose all unnecessary privileges */
-  FAIL_IF(setresgid(99, 99, 99) != 0, "Unable to change group id");
-  FAIL_IF(setresuid(99, 99, 99) != 0, "Unable to change user id");
+  FAIL_IF(setresgid(config.gid, config.gid, config.gid) != 0,
+          "Unable to change group id");
+  FAIL_IF(setresuid(config.uid, config.uid, config.uid) != 0,
+          "Unable to change user id");
 
   /* Set up signal handlers */
   signal(SIGINT, signal_handler);
@@ -125,15 +222,15 @@ int main() {
   int brightness_fd, sensor_fd, backlight_fd;
   pid_t pid;
 
-  brightness_fd =
-      open("/sys/class/backlight/nvidia_backlight/brightness", O_WRONLY);
+  config_init();
+
+  brightness_fd = open(config.brightness, O_WRONLY);
   FAIL_IF(brightness_fd < 0, "Error opening brightness file");
 
-  backlight_fd =
-      open("/sys/class/leds/smc::kbd_backlight/brightness", O_WRONLY);
+  backlight_fd = open(config.backlight, O_WRONLY);
   FAIL_IF(backlight_fd < 0, "Error opening backlight file");
 
-  sensor_fd = open("/sys/devices/platform/applesmc.768/light", O_RDONLY);
+  sensor_fd = open(config.sensor, O_RDONLY);
   FAIL_IF(sensor_fd < 0, "Error opening sensor file");
 
   pid = fork();
