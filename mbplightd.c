@@ -91,11 +91,25 @@ static int sensor_fd;     /* file descriptor for ambient light sensor */
 
 static pid_t daemon_pid; /* pid of daemon */
 
+static void write_pid(void) {
+  FILE *pidfile = fopen(config.pidfile, "w");
+
+  FAIL_IF(pidfile == NULL, "Unable to open pidfile");
+
+  fprintf(pidfile, "%d", daemon_pid);
+
+  fclose(pidfile);
+}
+
+static inline void delete_pid(void) {
+  FAIL_IF(unlink(config.pidfile) != 0, "Unable to delete pidfile");
+}
+
 void signal_handler(int signal) {
   switch (signal) {
   case SIGINT:
   case SIGTERM:
-    fprintf(stderr, "Received signal: %s\n", strsignal(signal));
+    delete_pid();
     exit(EXIT_SUCCESS);
     break;
   case SIGHUP:
@@ -180,6 +194,9 @@ void run_daemon(void) {
   FAIL_IF(setresuid(config.uid, config.uid, config.uid) != 0,
           "Unable to change user id");
 
+  /* write pid out to file */
+  write_pid();
+
   /* Set up signal handlers */
   signal(SIGINT, signal_handler);
   signal(SIGTERM, signal_handler);
@@ -231,6 +248,10 @@ void run_daemon(void) {
 int main() {
   config_init();
 
+  /* check if the pidfile already exists */
+  FAIL_IF(access(config.pidfile, F_OK) != 0, "pidfile exists");
+
+  /* get file descriptors */
   brightness_fd = open(config.brightness, O_WRONLY);
   FAIL_IF(brightness_fd < 0, "Error opening brightness file");
 
