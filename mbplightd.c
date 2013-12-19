@@ -63,7 +63,7 @@
 #define DEFAULT_GID 99
 #define DEFAULT_UID 99
 
-struct config {
+static struct config {
   char *sensor;      /* filename for the ambient light sensor */
   char *brightness;  /* filename for the brightness control */
   char *backlight;   /* filename for the backlight control */
@@ -84,6 +84,12 @@ struct config {
   int uid;          /* user id we should run under */
   int gid;          /* group id we should run under */
 } config;
+
+static int brightness_fd; /* file descriptor for screen brightness control */
+static int backlight_fd;  /* file descriptor for keyboard backlight control */
+static int sensor_fd;     /* file descriptor for ambient light sensor */
+
+static pid_t daemon_pid; /* pid of daemon */
 
 void signal_handler(int signal) {
   switch (signal) {
@@ -155,7 +161,7 @@ void config_init(void) {
   iniparser_freedict(dict);
 }
 
-void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
+void run_daemon(void) {
   char buf[16];
   int ambient_light;
   double new_val;
@@ -223,9 +229,6 @@ void run_daemon(int brightness_fd, int backlight_fd, int sensor_fd) {
 }
 
 int main() {
-  int brightness_fd, sensor_fd, backlight_fd;
-  pid_t pid;
-
   config_init();
 
   brightness_fd = open(config.brightness, O_WRONLY);
@@ -237,16 +240,16 @@ int main() {
   sensor_fd = open(config.sensor, O_RDONLY);
   FAIL_IF(sensor_fd < 0, "Error opening sensor file");
 
-  pid = fork();
-  FAIL_IF(pid < 0, "Could not fork child process");
+  daemon_pid = fork();
+  FAIL_IF(daemon_pid < 0, "Could not fork child process");
 
-  if (pid > 0) {
+  if (daemon_pid > 0) {
     /* successfully forked, terminate parent */
     exit(EXIT_SUCCESS);
   }
 
   /* child process, write to the brightness file */
-  run_daemon(brightness_fd, backlight_fd, sensor_fd);
+  run_daemon();
 
   __builtin_unreachable();
 }
