@@ -30,10 +30,17 @@ permissions (`/jail/mbplightd`).  This way, even if it gets compromised,
 there is very little damage it can do.
 
 
+Dependencies
+------------
+- [iniparser](http://ndevilla.free.fr/iniparser/)
+
+
 How to build
 ------------
 
-    clang -O2 mbplightd.c -o mbplightd -lm
+```
+make
+```
 
 
 Usage
@@ -47,23 +54,22 @@ ls -l /sys/class/leds/smc::kbd_backlight/brightness
 ls -l /sys/devices/platform/applesmc.768/light
 ```
 
-  If any of these files don't exist, you will need to modify the
-  appropriate path in the source code
+  If any of these files don't exist, find the corresponding file for
+  your system and update `mbplightd.conf`
 
-* Choose a chroot directory (currently this is hardcoded to
+* Choose a chroot directory (currently this defaults to
   `/jail/mbplightd`) and make sure that only root has permissions for
-  that directory
+  that directory.  If you would like to use a different directory,
+  update `mbplightd.conf` and replace the directory below with your
+  chosen directory.
 
 ```
 sudo mkdir -p /jail/mbplightd
 sudo chmod 700 /jail/mbplightd
 ```
 
-* Make sure the `nobody` user exists and verify that its uid is 99
-
-```
-cat /etc/passwd | grep nobody
-```
+* Choose a uid and gid for the program.  This defaults to 99 (the
+  `nobody` user)
 
 * Run mbplightd
 
