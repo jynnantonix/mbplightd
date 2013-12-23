@@ -86,6 +86,7 @@ static struct config {
 static int brightness_fd; /* file descriptor for screen brightness control */
 static int backlight_fd;  /* file descriptor for keyboard backlight control */
 static int sensor_fd;     /* file descriptor for ambient light sensor */
+static char fd_buf[16];   /* buffer used to read/write from file descriptors */
 
 static void signal_handler(int signal) {
   switch (signal) {
@@ -154,11 +155,55 @@ static void config_init(void) {
   iniparser_freedict(dict);
 }
 
+static void set_screen_brightness(int sensor, int low, int high) {
+  const double denom = log(256); /* log of the max sensor value */
+  int value = (int)(low + (log(sensor + 1.0) / denom) * (high - low));
+
+  FAIL_IF(lseek(brightness_fd, 0, SEEK_SET) < 0, "Brightness seek error");
+  /* set the brightness */
+  if (unlikely(snprintf(fd_buf, sizeof(fd_buf), "%d", value) ==
+               sizeof(fd_buf))) {
+    fd_buf[sizeof(fd_buf) - 1] = '\0';
+    fprintf(stderr, "Brightness value overflowed buffer: %s\n", fd_buf);
+    exit(EXIT_FAILURE);
+  }
+  FAIL_IF(write(brightness_fd, fd_buf, strlen(fd_buf)) < 0,
+          "Brightness write failed");
+}
+
+static void set_keyboard_backlight(int sensor, int low, int high) {
+  const double denom = log(256); /* log of the max sensor value */
+  int value = (int)(low + (log(sensor + 1.0) / denom) * (high - low));
+
+  FAIL_IF(lseek(backlight_fd, 0, SEEK_SET) < 0, "Backlight seek error");
+  /* set the keyboard backlight */
+  if (unlikely(snprintf(fd_buf, sizeof(fd_buf), "%d", value) ==
+               sizeof(fd_buf))) {
+    fd_buf[sizeof(fd_buf) - 1] = '\0';
+    fprintf(stderr, "Backight value overflowed buffer: %s\n", fd_buf);
+    exit(EXIT_FAILURE);
+  }
+  FAIL_IF(write(backlight_fd, fd_buf, strlen(fd_buf)) < 0,
+          "Backlight write failed");
+}
+
+static int read_ambient_light_sensor(void) {
+  int val;
+
+  FAIL_IF(lseek(sensor_fd, 0, SEEK_SET) < 0, "Sensor seek error");
+
+  /* read the sensor */
+  FAIL_IF(read(sensor_fd, fd_buf, sizeof(fd_buf)) <= 0, "Sensor read error");
+  if (unlikely(sscanf(fd_buf, "(%d,", &val) <= 0)) {
+    fputs("Error parsing sensor data\n", stderr);
+    exit(EXIT_FAILURE);
+  }
+
+  return val;
+}
+
 static void run_daemon(void) {
-  char buf[16];
   int ambient_light;
-  double new_val;
-  const double denom = log(256);
 
   /* Create new session */
   FAIL_IF(setsid() < 0, "Unable to create new session");
@@ -179,42 +224,12 @@ static void run_daemon(void) {
   signal(SIGHUP, signal_handler);
 
   do {
-    /* go to the beginning of each file */
-    FAIL_IF(lseek(sensor_fd, 0, SEEK_SET) < 0, "Sensor seek error");
-    FAIL_IF(lseek(brightness_fd, 0, SEEK_SET) < 0, "Brightness seek error");
-    FAIL_IF(lseek(backlight_fd, 0, SEEK_SET) < 0, "Backlight seek error");
+    ambient_light = read_ambient_light_sensor();
 
-    /* get the backight value */
-    FAIL_IF(read(sensor_fd, buf, sizeof(buf)) <= 0, "Sensor read error");
-
-    if (unlikely(sscanf(buf, "(%d,", &ambient_light) <= 0)) {
-      fputs("Error parsing sensor data\n", stderr);
-      exit(EXIT_FAILURE);
-    }
-
-    /* calculate the new value*/
-    new_val = 128 + ((log(ambient_light + 1) / denom) * 895);
-
-    /* set the brightness */
-    if (unlikely(snprintf(buf, sizeof(buf), "%d", (int) new_val) ==
-                 sizeof(buf))) {
-      buf[sizeof(buf) - 1] = '\0';
-      fprintf(stderr, "Brightness value overflowed buffer: %s\n", buf);
-      exit(EXIT_FAILURE);
-    }
-    FAIL_IF(write(brightness_fd, buf, strlen(buf)) < 0,
-            "Brightness write failed");
-
-    /* set the keyboard backlight */
-    if (unlikely(snprintf(buf, sizeof(buf), "%d", (int)(new_val / 4)) ==
-                 sizeof(buf))) {
-      buf[sizeof(buf) - 1] = '\0';
-      fprintf(stderr, "Backight value overflowed buffer: %s\n", buf);
-      exit(EXIT_FAILURE);
-    }
-    FAIL_IF(write(backlight_fd, buf, strlen(buf)) < 0,
-            "Backlight write failed");
-
+    set_screen_brightness(ambient_light, config.ac_min_brightness,
+                          config.ac_max_brightness);
+    set_keyboard_backlight(ambient_light, config.ac_min_backlight,
+                           config.ac_max_backlight);
     sleep(config.poll_interval);
   } while (1);
 
