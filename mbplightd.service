@@ -6,7 +6,6 @@ After=systemd-modules-load.service
 [Service]
 ExecStart=/usr/bin/mbplightd
 Type=forking
-Restart=always
 
 [Install]
 WantedBy=multi-user.target
