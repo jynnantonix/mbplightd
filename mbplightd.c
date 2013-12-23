@@ -46,6 +46,7 @@
 #define SENSOR_LOCATION "/sys/devices/platform/applesmc.768/light"
 #define BRIGHTNESS_LOCATION "/sys/class/backlight/nvidia_backlight/brightness"
 #define BACKLIGHT_LOCATION "/sys/class/leds/smc::kbd_backlight/brightness"
+#define AC_STATUS_LOCATION "/sys/class/power_supply/ADP1/online"
 #define POLL_INTERVAL 2
 
 #define AC_MAX_BRIGHTNESS 1023
@@ -66,6 +67,7 @@ static struct config {
   char *sensor;      /* filename for the ambient light sensor */
   char *brightness;  /* filename for the brightness control */
   char *backlight;   /* filename for the backlight control */
+  char *ac_status;   /* filename for the ac adaptor status */
   int poll_interval; /* number of seconds to wait between updates */
 
   int ac_max_brightness;  /* maximum brightness value when on AC power */
@@ -86,6 +88,7 @@ static struct config {
 static int brightness_fd; /* file descriptor for screen brightness control */
 static int backlight_fd;  /* file descriptor for keyboard backlight control */
 static int sensor_fd;     /* file descriptor for ambient light sensor */
+static int ac_status_fd;  /* file descriptor for the ac adaptor status */
 static char fd_buf[16];   /* buffer used to read/write from file descriptors */
 
 static void signal_handler(int signal) {
@@ -117,6 +120,9 @@ static void config_init(void) {
 
   config.backlight = strdup(
       iniparser_getstring(dict, "general:backlight", BACKLIGHT_LOCATION));
+
+  config.ac_status = strdup(
+      iniparser_getstring(dict, "general:ac_status", AC_STATUS_LOCATION));
 
   config.poll_interval =
       iniparser_getint(dict, "general:poll_interval", POLL_INTERVAL);
@@ -202,6 +208,22 @@ static int read_ambient_light_sensor(void) {
   return val;
 }
 
+static int get_ac_status(void) {
+  int val;
+
+  FAIL_IF(lseek(ac_status_fd, 0, SEEK_SET) < 0, "Adaptor status seek error");
+
+  /* read the ac adaptor status */
+  FAIL_IF(read(ac_status_fd, fd_buf, sizeof(fd_buf)) <= 0,
+          "Adaptor status read error");
+  if (unlikely(sscanf(fd_buf, "%d,", &val) <= 0)) {
+    fputs("Error parsing sensor data\n", stderr);
+    exit(EXIT_FAILURE);
+  }
+
+  return val;
+}
+
 static void run_daemon(void) {
   int ambient_light;
 
@@ -226,10 +248,18 @@ static void run_daemon(void) {
   do {
     ambient_light = read_ambient_light_sensor();
 
-    set_screen_brightness(ambient_light, config.ac_min_brightness,
-                          config.ac_max_brightness);
-    set_keyboard_backlight(ambient_light, config.ac_min_backlight,
-                           config.ac_max_backlight);
+    if (get_ac_status() == 1) {
+      set_screen_brightness(ambient_light, config.ac_min_brightness,
+                            config.ac_max_brightness);
+      set_keyboard_backlight(ambient_light, config.ac_min_backlight,
+                             config.ac_max_backlight);
+    } else {
+      set_screen_brightness(ambient_light, config.bat_min_brightness,
+                            config.bat_max_brightness);
+      set_keyboard_backlight(ambient_light, config.bat_min_backlight,
+                             config.bat_max_backlight);
+    }
+
     sleep(config.poll_interval);
   } while (1);
 
@@ -248,6 +278,9 @@ int main() {
 
   sensor_fd = open(config.sensor, O_RDONLY);
   FAIL_IF(sensor_fd < 0, "Error opening sensor file");
+
+  ac_status_fd = open(config.ac_status, O_RDONLY);
+  FAIL_IF(ac_status_fd < 0, "Error opening AC adaptor status file");
 
   pid = fork();
   FAIL_IF(pid < 0, "Could not fork child process");
