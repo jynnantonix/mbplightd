@@ -41,7 +41,7 @@
     }                                                                          \
   } while (0)
 
-#define CONFIG_LOCATION "mbplightd.conf"
+#define CONFIG_LOCATION "/etc/mbplightd.conf"
 
 #define SENSOR_LOCATION "/sys/devices/platform/applesmc.768/light"
 #define BRIGHTNESS_LOCATION "/sys/class/backlight/nvidia_backlight/brightness"
