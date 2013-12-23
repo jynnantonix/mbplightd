@@ -1,5 +1,6 @@
 [Unit]
 Description=Daemon to control keyboard backlight and screen brightness
+Wants=systemd-modules-load.service
 After=systemd-modules-load.service
 
 [Service]
