@@ -87,7 +87,7 @@ static int brightness_fd; /* file descriptor for screen brightness control */
 static int backlight_fd;  /* file descriptor for keyboard backlight control */
 static int sensor_fd;     /* file descriptor for ambient light sensor */
 
-void signal_handler(int signal) {
+static void signal_handler(int signal) {
   switch (signal) {
   case SIGINT:
   case SIGTERM:
@@ -103,7 +103,7 @@ void signal_handler(int signal) {
   }
 }
 
-void config_init(void) {
+static void config_init(void) {
   dictionary *dict = iniparser_load(CONFIG_LOCATION);
 
   FAIL_IF(dict == NULL, "Error loading config file");
@@ -154,7 +154,7 @@ void config_init(void) {
   iniparser_freedict(dict);
 }
 
-void run_daemon(void) {
+static void run_daemon(void) {
   char buf[16];
   int ambient_light;
   double new_val;
