@@ -46,7 +46,6 @@
 #define SENSOR_LOCATION "/sys/devices/platform/applesmc.768/light"
 #define BRIGHTNESS_LOCATION "/sys/class/backlight/nvidia_backlight/brightness"
 #define BACKLIGHT_LOCATION "/sys/class/leds/smc::kbd_backlight/brightness"
-#define PID_LOCATION "/run/mbplightd/pidfile"
 #define POLL_INTERVAL 2
 
 #define AC_MAX_BRIGHTNESS 1023
@@ -67,7 +66,6 @@ static struct config {
   char *sensor;      /* filename for the ambient light sensor */
   char *brightness;  /* filename for the brightness control */
   char *backlight;   /* filename for the backlight control */
-  char *pidfile;     /* write the daemon's pid here */
   int poll_interval; /* number of seconds to wait between updates */
 
   int ac_max_brightness;  /* maximum brightness value when on AC power */
@@ -88,8 +86,6 @@ static struct config {
 static int brightness_fd; /* file descriptor for screen brightness control */
 static int backlight_fd;  /* file descriptor for keyboard backlight control */
 static int sensor_fd;     /* file descriptor for ambient light sensor */
-
-static pid_t daemon_pid; /* pid of daemon */
 
 void signal_handler(int signal) {
   switch (signal) {
@@ -120,9 +116,6 @@ void config_init(void) {
 
   config.backlight = strdup(
       iniparser_getstring(dict, "general:backlight", BACKLIGHT_LOCATION));
-
-  config.pidfile =
-      strdup(iniparser_getstring(dict, "general:pidfile", PID_LOCATION));
 
   config.poll_interval =
       iniparser_getint(dict, "general:poll_interval", POLL_INTERVAL);
@@ -229,6 +222,7 @@ void run_daemon(void) {
 }
 
 int main() {
+  pid_t pid;
   config_init();
 
   brightness_fd = open(config.brightness, O_WRONLY);
@@ -240,10 +234,10 @@ int main() {
   sensor_fd = open(config.sensor, O_RDONLY);
   FAIL_IF(sensor_fd < 0, "Error opening sensor file");
 
-  daemon_pid = fork();
-  FAIL_IF(daemon_pid < 0, "Could not fork child process");
+  pid = fork();
+  FAIL_IF(pid < 0, "Could not fork child process");
 
-  if (daemon_pid > 0) {
+  if (pid > 0) {
     /* successfully forked, terminate parent */
     exit(EXIT_SUCCESS);
   }
