@@ -186,7 +186,7 @@ static void set_keyboard_backlight(int sensor, int low, int high) {
   if (unlikely(snprintf(fd_buf, sizeof(fd_buf), "%d", value) ==
                sizeof(fd_buf))) {
     fd_buf[sizeof(fd_buf) - 1] = '\0';
-    fprintf(stderr, "Backight value overflowed buffer: %s\n", fd_buf);
+    fprintf(stderr, "Backlight value overflowed buffer: %s\n", fd_buf);
     exit(EXIT_FAILURE);
   }
   FAIL_IF(write(backlight_fd, fd_buf, strlen(fd_buf)) < 0,
