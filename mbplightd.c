@@ -178,8 +178,15 @@ static void set_screen_brightness(int sensor, int low, int high) {
 }
 
 static void set_keyboard_backlight(int sensor, int low, int high) {
-  const double denom = log(256); /* log of the max sensor value */
-  int value = (int)(low + (log(sensor + 1.0) / denom) * (high - low));
+  const double denom = log(128);
+  int value;
+
+  if (sensor > 128) {
+    value = 0;
+  } else {
+    sensor = abs(sensor - 4);
+    value = (int)(low + (log(sensor + 1.0) / denom) * (high - low));
+  }
 
   FAIL_IF(lseek(backlight_fd, 0, SEEK_SET) < 0, "Backlight seek error");
   /* set the keyboard backlight */
