@@ -91,22 +91,6 @@ static int sensor_fd;     /* file descriptor for ambient light sensor */
 static int ac_status_fd;  /* file descriptor for the ac adaptor status */
 static char fd_buf[16];   /* buffer used to read/write from file descriptors */
 
-static void signal_handler(int signal) {
-  switch (signal) {
-  case SIGINT:
-  case SIGTERM:
-    fprintf(stderr, "Received signal: %s\n", strsignal(signal));
-    exit(EXIT_SUCCESS);
-    break;
-  case SIGHUP:
-    fputs("Received SIGHUP\n", stderr);
-    break;
-  default:
-    fprintf(stderr, "Unhandled signal: (%d) %s\n", signal, strsignal(signal));
-    break;
-  }
-}
-
 static void config_init(void) {
   dictionary *dict = iniparser_load(CONFIG_LOCATION);
 
@@ -246,11 +230,6 @@ static void run_daemon(void) {
           "Unable to change group id");
   FAIL_IF(setresuid(config.uid, config.uid, config.uid) != 0,
           "Unable to change user id");
-
-  /* Set up signal handlers */
-  signal(SIGINT, signal_handler);
-  signal(SIGTERM, signal_handler);
-  signal(SIGHUP, signal_handler);
 
   do {
     ambient_light = read_ambient_light_sensor();
